@@ -1,0 +1,162 @@
+// prisma/schema.prisma
+// Define your database models
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Enums
+enum PaymentStatus {
+  SUCCESS
+  PENDING
+  HOLD
+  REJECTED
+}
+
+enum TransactionType {
+  RESERVATION
+  WAREHOUSE
+}
+
+enum TransactionStatus {
+  SUCCESS
+  UNSUCCESS
+  PENDING
+}
+
+enum AttachmentDays {
+  MO
+  TU
+  WE
+  TH
+  FR
+  ST
+  SU
+}
+
+// Models
+model Restaurant {
+  id           Int           @id @default(autoincrement())
+  name         String
+  location     String
+  opening      DateTime
+  closing      DateTime
+  users        User[]
+  menus        Menu[]
+  reservations Reservation[]
+  places       Place[]
+}
+
+model User {
+  id            Int                  @id @default(autoincrement())
+  email         String               @unique
+  password      String
+  login         String
+  restaurantId  Int
+  restaurant    Restaurant           @relation(fields: [restaurantId], references: [id])
+  tokens        AuthorizationToken[]
+  reservations  Reservation[]
+}
+
+model Menu {
+  id           Int            @id @default(autoincrement())
+  name         String
+  attachedDay  AttachmentDays
+  restaurantId Int
+  restaurant   Restaurant     @relation(fields: [restaurantId], references: [id])
+  foods        Food[]
+}
+
+model Food {
+  id            Int            @id @default(autoincrement())
+  menuId        Int
+  name          String
+  description   String?
+  price         Int
+  menu          Menu           @relation(fields: [menuId], references: [id])
+  features      FoodFeature[]
+  foodIngredients FoodIngredient[]
+}
+
+model FoodIngredient {
+  id           Int        @id @default(autoincrement())
+  foodId       Int
+  ingredientId Int
+  food         Food       @relation(fields: [foodId], references: [id])
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+}
+
+model Ingredient {
+  id              Int                @id @default(autoincrement())
+  name            String
+  categoryId      Int
+  category        IngredientCategory @relation(fields: [categoryId], references: [id])
+  foodIngredients FoodIngredient[]
+}
+
+model IngredientCategory {
+  id          Int          @id @default(autoincrement())
+  name        String
+  ingredients Ingredient[]
+}
+
+model FoodFeature {
+  id     Int    @id @default(autoincrement())
+  name   String
+  foodId Int
+  food   Food   @relation(fields: [foodId], references: [id])
+}
+
+model Place {
+  id           Int           @id @default(autoincrement())
+  number       String
+  seats        Int
+  restaurantId Int
+  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id])
+  reservations Reservation[]
+}
+
+model Reservation {
+  id              Int           @id @default(autoincrement())
+  restaurantId    Int
+  userId          Int
+  placeId         Int
+  reservationTime DateTime
+  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id])
+  user            User          @relation(fields: [userId], references: [id])
+  place           Place         @relation(fields: [placeId], references: [id])
+  transactions    Transaction[]
+}
+
+model Payment {
+  id           Int           @id @default(autoincrement())
+  amount       Int
+  status       PaymentStatus
+  description  String?
+  transactions Transaction[]
+}
+
+model Transaction {
+  id            Int               @id @default(autoincrement())
+  sourceType    TransactionType
+  sourceId      Int
+  paymentId     Int
+  amount        Int
+  status        TransactionStatus
+  description   String?
+  payment       Payment           @relation(fields: [paymentId], references: [id])
+  reservation   Reservation?      @relation(fields: [sourceId], references: [id])
+}
+
+model AuthorizationToken {
+  id         Int      @id @default(autoincrement())
+  token      String   @unique
+  expireDate DateTime
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id])
+}
