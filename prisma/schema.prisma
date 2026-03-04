@@ -1,5 +1,4 @@
-// prisma/schema.prisma
-// Define your database models
+// This is your Prisma schema file
 
 generator client {
   provider = "prisma-client"
@@ -7,10 +6,19 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "postgresql" // yoki "mysql"
 }
 
-// Enums
+// --- ENUMS ---
+
+enum Role {
+  CUSTOMER
+  OWNER
+  WAITER
+  CHEF
+  ADMIN
+}
+
 enum PaymentStatus {
   SUCCESS
   PENDING
@@ -18,9 +26,18 @@ enum PaymentStatus {
   REJECTED
 }
 
+enum OrderStatus {
+  OPEN
+  IN_PROGRESS
+  READY
+  COMPLETED
+  CANCELLED
+}
+
 enum TransactionType {
   RESERVATION
   WAREHOUSE
+  ORDER
 }
 
 enum TransactionStatus {
@@ -29,75 +46,91 @@ enum TransactionStatus {
   PENDING
 }
 
-enum AttachmentDays {
-  MO
-  TU
-  WE
-  TH
-  FR
-  ST
-  SU
+enum Day {
+  Mo
+  Tu
+  We
+  Th
+  Fr
+  St
+  Su
 }
 
-// Models
+// --- MODELS ---
+
+model User {
+  id            Int            @id @default(autoincrement())
+  email         String         @unique
+  password      String
+  login         String?        @unique
+  role          Role           @default(CUSTOMER)
+  restaurantId  Int?
+  restaurant    Restaurant?    @relation(fields: [restaurantId], references: [id])
+  reservations  Reservation[]
+  orders        Order[]        // Ofitsiant sifatida ochgan buyurtmalari
+  tokens        AuthToken[]
+  createdAt     DateTime       @default(now())
+}
+
 model Restaurant {
   id           Int           @id @default(autoincrement())
   name         String
-  location     String
-  opening      DateTime
-  closing      DateTime
+  location     String?
+  opening      String?       // "09:00" ko'rinishida
+  closing      String?       // "23:00" ko'rinishida
   users        User[]
   menus        Menu[]
+  areas        Area[]
+  ingredients  Ingredient[]
   reservations Reservation[]
+}
+
+model Area {
+  id           Int        @id @default(autoincrement())
+  name         String     // Masalan: "Terrasa", "VIP"
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
   places       Place[]
 }
 
-model User {
-  id            Int                  @id @default(autoincrement())
-  email         String               @unique
-  password      String
-  login         String
-  restaurantId  Int
-  restaurant    Restaurant           @relation(fields: [restaurantId], references: [id])
-  tokens        AuthorizationToken[]
-  reservations  Reservation[]
+model Place {
+  id           Int           @id @default(autoincrement())
+  number       String
+  seats        Int
+  areaId       Int
+  area         Area          @relation(fields: [areaId], references: [id])
+  reservations Reservation[]
 }
 
 model Menu {
-  id           Int            @id @default(autoincrement())
+  id           Int        @id @default(autoincrement())
   name         String
-  attachedDay  AttachmentDays
+  attachedDays Day[]      // Bir necha kunni tanlash imkoniyati
   restaurantId Int
-  restaurant   Restaurant     @relation(fields: [restaurantId], references: [id])
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
   foods        Food[]
 }
 
 model Food {
-  id            Int            @id @default(autoincrement())
-  menuId        Int
-  name          String
-  description   String?
-  price         Int
-  menu          Menu           @relation(fields: [menuId], references: [id])
-  features      FoodFeature[]
-  foodIngredients FoodIngredient[]
+  id          Int              @id @default(autoincrement())
+  name        String
+  description String?
+  price       Decimal          @db.Decimal(10, 2)
+  menuId      Int
+  menu        Menu             @relation(fields: [menuId], references: [id])
+  features    FoodFeature[]
+  ingredients FoodIngredient[] // Retsept (Ombor bilan bog'liqlik)
+  orderItems  OrderItem[]
 }
 
-model FoodIngredient {
-  id           Int        @id @default(autoincrement())
-  foodId       Int
-  ingredientId Int
-  food         Food       @relation(fields: [foodId], references: [id])
-  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+model FoodFeature {
+  id     Int    @id @default(autoincrement())
+  name   String // Masalan: "Achchiq", "Vegan"
+  foodId Int
+  food   Food   @relation(fields: [foodId], references: [id])
 }
 
-model Ingredient {
-  id              Int                @id @default(autoincrement())
-  name            String
-  categoryId      Int
-  category        IngredientCategory @relation(fields: [categoryId], references: [id])
-  foodIngredients FoodIngredient[]
-}
+// --- INVENTORY (OMBOR) ---
 
 model IngredientCategory {
   id          Int          @id @default(autoincrement())
@@ -105,55 +138,86 @@ model IngredientCategory {
   ingredients Ingredient[]
 }
 
-model FoodFeature {
-  id     Int    @id @default(autoincrement())
-  name   String
-  foodId Int
-  food   Food   @relation(fields: [foodId], references: [id])
+model Ingredient {
+  id          Int              @id @default(autoincrement())
+  name        String
+  stock       Decimal          @default(0) @db.Decimal(10, 3)
+  unit        String           // "kg", "gr", "l", "dona"
+  categoryId  Int
+  category    IngredientCategory @relation(fields: [categoryId], references: [id])
+  restaurantId Int
+  restaurant   Restaurant      @relation(fields: [restaurantId], references: [id])
+  foods       FoodIngredient[]
 }
 
-model Place {
-  id           Int           @id @default(autoincrement())
-  number       String
-  seats        Int
-  restaurantId Int
-  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id])
-  reservations Reservation[]
+model FoodIngredient {
+  id           Int        @id @default(autoincrement())
+  foodId       Int
+  food         Food       @relation(fields: [foodId], references: [id])
+  ingredientId Int
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+  amount       Decimal    @db.Decimal(10, 3) // Retsept bo'yicha ketadigan miqdor
 }
+
+// --- SALES & RESERVATIONS (KASSA VA BAND QILISH) ---
 
 model Reservation {
-  id              Int           @id @default(autoincrement())
+  id              Int          @id @default(autoincrement())
   restaurantId    Int
+  restaurant      Restaurant   @relation(fields: [restaurantId], references: [id])
   userId          Int
+  user            User         @relation(fields: [userId], references: [id])
   placeId         Int
+  place           Place        @relation(fields: [placeId], references: [id])
   reservationTime DateTime
-  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id])
-  user            User          @relation(fields: [userId], references: [id])
-  place           Place         @relation(fields: [placeId], references: [id])
-  transactions    Transaction[]
+  order           Order?       // Bitta bandlovga bitta asosiy buyurtma
+}
+
+model Order {
+  id            Int          @id @default(autoincrement())
+  reservationId Int?         @unique
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  waiterId      Int
+  waiter        User         @relation(fields: [waiterId], references: [id])
+  status        OrderStatus  @default(OPEN)
+  items         OrderItem[]
+  payment       Payment?
+  createdAt     DateTime     @default(now())
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  order     Order   @relation(fields: [orderId], references: [id])
+  foodId    Int
+  food      Food    @relation(fields: [foodId], references: [id])
+  quantity  Int
+  priceAtPurchase Decimal @db.Decimal(10, 2) // Sotilgan vaqtdagi narxi
 }
 
 model Payment {
   id           Int           @id @default(autoincrement())
-  amount       Int
-  status       PaymentStatus
+  orderId      Int           @unique
+  order        Order         @relation(fields: [orderId], references: [id])
+  amount       Decimal       @db.Decimal(10, 2)
+  status       PaymentStatus @default(PENDING)
   description  String?
   transactions Transaction[]
+  createdAt    DateTime      @default(now())
 }
 
 model Transaction {
-  id            Int               @id @default(autoincrement())
-  sourceType    TransactionType
-  sourceId      Int
-  paymentId     Int
-  amount        Int
-  status        TransactionStatus
-  description   String?
-  payment       Payment           @relation(fields: [paymentId], references: [id])
-  reservation   Reservation?      @relation(fields: [sourceId], references: [id])
+  id          Int               @id @default(autoincrement())
+  sourceType  TransactionType
+  sourceId    Int               // Reservation ID yoki Order ID
+  paymentId   Int
+  payment     Payment           @relation(fields: [paymentId], references: [id])
+  amount      Decimal           @db.Decimal(10, 2)
+  status      TransactionStatus @default(PENDING)
+  description String?
 }
 
-model AuthorizationToken {
+model AuthToken {
   id         Int      @id @default(autoincrement())
   token      String   @unique
   expireDate DateTime
